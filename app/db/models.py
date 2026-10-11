@@ -23,6 +23,7 @@ class User(Base):
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user")
     tasks: Mapped[list["Task"]] = relationship(back_populates="user")
     meetings: Mapped[list["Meeting"]] = relationship(back_populates="user")
+    reminders: Mapped[list["Reminder"]] = relationship(back_populates="user")
     idempotency_keys: Mapped[list["IdempotencyKey"]] = relationship(back_populates="user")
 
 
@@ -76,6 +77,23 @@ class Meeting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="meetings")
+
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+    __table_args__ = (CheckConstraint("status IN ('pending', 'fired')", name="ck_reminders_status"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str] = mapped_column(String(2000))
+    fire_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16))
+    fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_id: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship(back_populates="reminders")
 
 
 class IdempotencyKey(Base):

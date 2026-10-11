@@ -8,6 +8,7 @@ from app.api.auth import router as auth_router
 from app.api.errors import register_exception_handlers
 from app.api.health import router as health_router
 from app.api.meetings import router as meetings_router
+from app.api.reminders import router as reminders_router
 from app.api.tasks import router as tasks_router
 from app.auth.rate_limit import LoginRateLimiter
 from app.config import get_settings
@@ -29,6 +30,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix=API_PREFIX)
     app.include_router(tasks_router, prefix=API_PREFIX)
     app.include_router(meetings_router, prefix=API_PREFIX)
+    app.include_router(reminders_router, prefix=API_PREFIX)
     return app
 
 
