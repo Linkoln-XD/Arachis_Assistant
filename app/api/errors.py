@@ -19,6 +19,8 @@ _MESSAGES = {
     "too_long": "Слишком длинное значение",
     "invalid": "Некорректное значение",
     "invalid_timezone": "Неизвестный часовой пояс",
+    "invalid_status": "Некорректный статус",
+    "invalid_range": "Некорректный диапазон",
 }
 
 
@@ -65,11 +67,24 @@ def _field_error(item: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
+def validation_details(errors: list[tuple[str, str]]) -> dict[str, list[dict[str, str]]]:
+    return {
+        "errors": [
+            {"field": field, "code": code, "message": _MESSAGES[code]}
+            for field, code in errors
+        ]
+    }
+
+
 def _error_code(item: Mapping[str, Any]) -> str:
     message = str(item.get("msg", ""))
     if "invalid_timezone" in message:
         return "invalid_timezone"
-    return _FIELD_CODES.get(str(item.get("type", "")), "invalid")
+    field = _field_name(item.get("loc", ()))
+    error_type = str(item.get("type", ""))
+    if field == "status" and error_type == "literal_error":
+        return "invalid_status"
+    return _FIELD_CODES.get(error_type, "invalid")
 
 
 def _field_name(location: object) -> str:
