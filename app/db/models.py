@@ -22,6 +22,7 @@ class User(Base):
 
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user")
     tasks: Mapped[list["Task"]] = relationship(back_populates="user")
+    meetings: Mapped[list["Meeting"]] = relationship(back_populates="user")
     idempotency_keys: Mapped[list["IdempotencyKey"]] = relationship(back_populates="user")
 
 
@@ -59,6 +60,22 @@ class Task(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="tasks")
+
+
+class Meeting(Base):
+    __tablename__ = "meetings"
+    __table_args__ = (CheckConstraint("ends_at > starts_at", name="ck_meetings_interval"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(2000))
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source_id: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship(back_populates="meetings")
 
 
 class IdempotencyKey(Base):

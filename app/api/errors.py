@@ -21,6 +21,8 @@ _MESSAGES = {
     "invalid_timezone": "Неизвестный часовой пояс",
     "invalid_status": "Некорректный статус",
     "invalid_range": "Некорректный диапазон",
+    "invalid_interval": "Конец должен быть позже начала",
+    "duration_too_long": "Встреча длиннее 24 часов",
 }
 
 

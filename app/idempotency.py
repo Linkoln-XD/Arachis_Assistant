@@ -5,12 +5,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.errors import APIError
+from app.api.errors import APIError, validation_details
 from app.db.models import IdempotencyKey, User
 
 _TTL = timedelta(hours=24)
@@ -27,6 +28,30 @@ class PreparedResponse:
         if self.body is None:
             return Response(status_code=self.status_code, headers=headers)
         return JSONResponse(status_code=self.status_code, content=self.body, headers=headers)
+
+
+async def raw_body(request: Request) -> bytes:
+    return await request.body()
+
+
+def valid_key(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if value == "":
+        raise APIError(
+            422,
+            "validation_error",
+            "Некорректные данные",
+            validation_details([("Idempotency-Key", "too_short")]),
+        )
+    if len(value) > 128:
+        raise APIError(
+            422,
+            "validation_error",
+            "Некорректные данные",
+            validation_details([("Idempotency-Key", "too_long")]),
+        )
+    return value
 
 
 def run_idempotent(

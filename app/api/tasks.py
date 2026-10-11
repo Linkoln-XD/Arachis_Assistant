@@ -26,7 +26,7 @@ from app.calendar.tasks import (
 )
 from app.db.models import Task, User
 from app.db.session import get_session
-from app.idempotency import PreparedResponse, run_idempotent
+from app.idempotency import PreparedResponse, raw_body, run_idempotent, valid_key
 
 router = APIRouter(prefix="/tasks")
 
@@ -81,40 +81,16 @@ class TaskStatusResponse(BaseModel):
     status_changed: bool
 
 
-async def _raw_body(request: Request) -> bytes:
-    return await request.body()
-
-
-def _valid_key(value: str | None) -> str | None:
-    if value is None:
-        return None
-    if value == "":
-        raise APIError(
-            422,
-            "validation_error",
-            "Некорректные данные",
-            validation_details([("Idempotency-Key", "too_short")]),
-        )
-    if len(value) > 128:
-        raise APIError(
-            422,
-            "validation_error",
-            "Некорректные данные",
-            validation_details([("Idempotency-Key", "too_long")]),
-        )
-    return value
-
-
 @router.post("", status_code=201, response_model=TaskResponse)
 def create(
     body: CreateTaskRequest,
     request: Request,
-    raw: Annotated[bytes, Depends(_raw_body)],
+    raw: Annotated[bytes, Depends(raw_body)],
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
     idempotency_key: Annotated[str | None, Header()] = None,
 ) -> Response:
-    key = _valid_key(idempotency_key)
+    key = valid_key(idempotency_key)
 
     def perform() -> PreparedResponse:
         try:
@@ -233,12 +209,12 @@ def reopen(
 def destroy(
     task_id: UUID,
     request: Request,
-    raw: Annotated[bytes, Depends(_raw_body)],
+    raw: Annotated[bytes, Depends(raw_body)],
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
     idempotency_key: Annotated[str | None, Header()] = None,
 ) -> Response:
-    key = _valid_key(idempotency_key)
+    key = valid_key(idempotency_key)
 
     def perform() -> PreparedResponse:
         try:
