@@ -41,6 +41,12 @@ class TaskPage:
     total: int
 
 
+@dataclass(frozen=True)
+class StatusChange:
+    task: Task
+    status_changed: bool
+
+
 def create_task(session: Session, user: User, *, description: str, due_on: date | None) -> Task:
     if due_on is not None and due_on < _today(user):
         raise DueInThePast("due_on")
@@ -57,8 +63,60 @@ def create_task(session: Session, user: User, *, description: str, due_on: date 
         updated_at=now,
     )
     session.add(task)
-    session.commit()
+    session.flush()
     return task
+
+
+def update_task(
+    session: Session,
+    user: User,
+    task_id: UUID,
+    *,
+    description: str | None,
+    due_on: date | None,
+    update_description: bool,
+    update_due_on: bool,
+) -> Task:
+    task = get_task(session, user, task_id)
+    if update_due_on and due_on is not None and due_on < _today(user):
+        raise DueInThePast("due_on")
+    if update_description and description is not None:
+        task.description = description
+    if update_due_on:
+        task.due_on = due_on
+    if update_description or update_due_on:
+        task.updated_at = datetime.now(UTC)
+        session.commit()
+    return task
+
+
+def complete_task(session: Session, user: User, task_id: UUID) -> StatusChange:
+    task = get_task(session, user, task_id)
+    if task.status == "completed":
+        return StatusChange(task, False)
+    now = datetime.now(UTC)
+    task.status = "completed"
+    task.completed_at = now
+    task.updated_at = now
+    session.commit()
+    return StatusChange(task, True)
+
+
+def reopen_task(session: Session, user: User, task_id: UUID) -> StatusChange:
+    task = get_task(session, user, task_id)
+    if task.status == "active":
+        return StatusChange(task, False)
+    task.status = "active"
+    task.completed_at = None
+    task.updated_at = datetime.now(UTC)
+    session.commit()
+    return StatusChange(task, True)
+
+
+def delete_task(session: Session, user: User, task_id: UUID) -> None:
+    task = get_task(session, user, task_id)
+    session.delete(task)
+    session.flush()
 
 
 def get_task(session: Session, user: User, task_id: UUID) -> Task:

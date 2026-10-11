@@ -82,6 +82,9 @@ def _error_code(item: Mapping[str, Any]) -> str:
         return "invalid_timezone"
     field = _field_name(item.get("loc", ()))
     error_type = str(item.get("type", ""))
+    context = item.get("ctx")
+    if isinstance(context, Mapping) and str(context.get("error")) == "required":
+        return "required"
     if field == "status" and error_type == "literal_error":
         return "invalid_status"
     return _FIELD_CODES.get(error_type, "invalid")

@@ -1,9 +1,10 @@
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Annotated, Literal, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -12,14 +13,20 @@ from app.api.errors import APIError, validation_details
 from app.calendar.tasks import (
     DueInThePast,
     InvalidTaskQuery,
+    StatusChange,
     TaskListQuery,
     TaskNotFound,
+    complete_task,
     create_task,
+    delete_task,
     get_task,
     list_tasks,
+    reopen_task,
+    update_task,
 )
 from app.db.models import Task, User
 from app.db.session import get_session
+from app.idempotency import PreparedResponse, run_idempotent
 
 router = APIRouter(prefix="/tasks")
 
@@ -48,6 +55,20 @@ class TaskResponse(BaseModel):
     updated_at: datetime
 
 
+class UpdateTaskRequest(BaseModel):
+    description: str | None = Field(default=None, min_length=1, max_length=2000)
+    due_on: date | None = None
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def strip_description(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("required")
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
 class TaskListResponse(BaseModel):
     items: list[TaskResponse]
     limit: int
@@ -55,24 +76,66 @@ class TaskListResponse(BaseModel):
     total: int
 
 
+class TaskStatusResponse(BaseModel):
+    task: TaskResponse
+    status_changed: bool
+
+
+async def _raw_body(request: Request) -> bytes:
+    return await request.body()
+
+
+def _valid_key(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if value == "":
+        raise APIError(
+            422,
+            "validation_error",
+            "Некорректные данные",
+            validation_details([("Idempotency-Key", "too_short")]),
+        )
+    if len(value) > 128:
+        raise APIError(
+            422,
+            "validation_error",
+            "Некорректные данные",
+            validation_details([("Idempotency-Key", "too_long")]),
+        )
+    return value
+
+
 @router.post("", status_code=201, response_model=TaskResponse)
 def create(
     body: CreateTaskRequest,
-    response: Response,
+    request: Request,
+    raw: Annotated[bytes, Depends(_raw_body)],
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
-) -> TaskResponse:
-    try:
-        task = create_task(session, user, description=body.description, due_on=body.due_on)
-    except DueInThePast as error:
-        raise APIError(
-            422,
-            "in_the_past",
-            "Указанное время уже прошло",
-            {"field": error.field},
-        ) from error
-    response.headers["Location"] = f"/api/v1/tasks/{task.id}"
-    return _task_response(task, user)
+    idempotency_key: Annotated[str | None, Header()] = None,
+) -> Response:
+    key = _valid_key(idempotency_key)
+
+    def perform() -> PreparedResponse:
+        try:
+            task = create_task(session, user, description=body.description, due_on=body.due_on)
+        except DueInThePast as error:
+            return PreparedResponse(
+                422,
+                {"code": "in_the_past", "message": "Указанное время уже прошло", "details": {"field": error.field}},
+            )
+        payload = _task_response(task, user).model_dump(mode="json")
+        return PreparedResponse(201, payload, {"Location": f"/api/v1/tasks/{task.id}"})
+
+    return run_idempotent(
+        session,
+        user=user,
+        method=request.method,
+        path=request.url.path,
+        key=key,
+        request_body=raw,
+        perform=perform,
+    )
 
 
 @router.get("", response_model=TaskListResponse)
@@ -119,6 +182,85 @@ def show(
     return _task_response(task, user)
 
 
+@router.patch("/{task_id}", response_model=TaskResponse)
+def update(
+    task_id: UUID,
+    body: UpdateTaskRequest,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> TaskResponse:
+    try:
+        task = update_task(
+            session,
+            user,
+            task_id,
+            description=body.description,
+            due_on=body.due_on,
+            update_description="description" in body.model_fields_set,
+            update_due_on="due_on" in body.model_fields_set,
+        )
+    except TaskNotFound as error:
+        raise APIError(404, "not_found", "Запись не найдена") from error
+    except DueInThePast as error:
+        raise APIError(
+            422,
+            "in_the_past",
+            "Указанное время уже прошло",
+            {"field": error.field},
+        ) from error
+    return _task_response(task, user)
+
+
+@router.post("/{task_id}/complete", response_model=TaskStatusResponse)
+def complete(
+    task_id: UUID,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> TaskStatusResponse:
+    return _status_response(session, user, task_id, complete_task)
+
+
+@router.post("/{task_id}/reopen", response_model=TaskStatusResponse)
+def reopen(
+    task_id: UUID,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> TaskStatusResponse:
+    return _status_response(session, user, task_id, reopen_task)
+
+
+@router.delete("/{task_id}", status_code=204)
+def destroy(
+    task_id: UUID,
+    request: Request,
+    raw: Annotated[bytes, Depends(_raw_body)],
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+    idempotency_key: Annotated[str | None, Header()] = None,
+) -> Response:
+    key = _valid_key(idempotency_key)
+
+    def perform() -> PreparedResponse:
+        try:
+            delete_task(session, user, task_id)
+        except TaskNotFound:
+            return PreparedResponse(
+                404,
+                {"code": "not_found", "message": "Запись не найдена", "details": {}},
+            )
+        return PreparedResponse(204)
+
+    return run_idempotent(
+        session,
+        user=user,
+        method=request.method,
+        path=request.url.path,
+        key=key,
+        request_body=raw,
+        perform=perform,
+    )
+
+
 def _task_response(task: Task, user: User) -> TaskResponse:
     zone = ZoneInfo(user.timezone)
     return TaskResponse(
@@ -132,6 +274,19 @@ def _task_response(task: Task, user: User) -> TaskResponse:
         created_at=_in_zone(task.created_at, zone),
         updated_at=_in_zone(task.updated_at, zone),
     )
+
+
+def _status_response(
+    session: Session,
+    user: User,
+    task_id: UUID,
+    operation: Callable[[Session, User, UUID], StatusChange],
+) -> TaskStatusResponse:
+    try:
+        result = operation(session, user, task_id)
+    except TaskNotFound as error:
+        raise APIError(404, "not_found", "Запись не найдена") from error
+    return TaskStatusResponse(task=_task_response(result.task, user), status_changed=result.status_changed)
 
 
 def _in_zone(value: datetime | None, zone: ZoneInfo) -> datetime | None:

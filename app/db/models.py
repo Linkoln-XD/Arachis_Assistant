@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, date, datetime
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, String, UniqueConstraint, Uuid
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -22,6 +22,7 @@ class User(Base):
 
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user")
     tasks: Mapped[list["Task"]] = relationship(back_populates="user")
+    idempotency_keys: Mapped[list["IdempotencyKey"]] = relationship(back_populates="user")
 
 
 class RefreshToken(Base):
@@ -58,3 +59,30 @@ class Task(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="tasks")
+
+
+class IdempotencyKey(Base):
+    __tablename__ = "idempotency_keys"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "method",
+            "path",
+            "idempotency_key",
+            name="uq_idempotency_keys_scope",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    method: Mapped[str] = mapped_column(String(16))
+    path: Mapped[str] = mapped_column(String(512))
+    key: Mapped[str] = mapped_column("idempotency_key", String(128))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    status_code: Mapped[int] = mapped_column(Integer)
+    response_body: Mapped[str | None] = mapped_column(Text)
+    response_headers: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship(back_populates="idempotency_keys")
