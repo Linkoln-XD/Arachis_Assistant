@@ -12,6 +12,8 @@ docker compose up --build -d
 
 Сервис слушает http://127.0.0.1:8000. Базовый путь API — `/api/v1`. Проверка: http://127.0.0.1:8000/api/v1/health отвечает `{"status":"ok"}`.
 
+Проверочная админка открывается на http://localhost:5173. Это отдельное React-приложение в каталоге `admin`: оно входит обычным пользователем и вызывает то же API. Интерфейс продукта оно не заменяет. Первый запуск дольше обычного: контейнер скачивает Node.js и ставит пакеты. Если Node.js уже есть на машине, админку можно поднять без контейнера: `cd admin && npm install && npm run dev`.
+
 Авторизация — заголовок `Authorization: Bearer <access_token>`. Токен выдают `POST /api/v1/auth/register` и `POST /api/v1/auth/login`. Сервер не использует cookie.
 
 Браузерный клиент на `http://localhost:5173` или `http://127.0.0.1:5173` может обращаться к API. Другой адрес задаётся переменной `CORS_ORIGINS` (образец — `.env.example`). Разрешены заголовки `Authorization`, `Content-Type` и `Idempotency-Key`. Скрипт может прочитать заголовок ответа `Location`.

@@ -6,3 +6,5 @@ __pycache__/
 .ruff_cache/
 .env
 .DS_Store
+admin/node_modules/
+admin/dist/

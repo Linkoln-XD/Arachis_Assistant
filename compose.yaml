@@ -27,5 +27,20 @@ services:
       postgres:
         condition: service_healthy
 
+  admin:
+    image: node:22-bookworm
+    working_dir: /src
+    volumes:
+      - ./admin:/src
+      - admin_node_modules:/src/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      CHOKIDAR_USEPOLLING: "1"
+    command: ["sh", "-c", "npm install && npm run dev -- --host 0.0.0.0 --port 5173"]
+    depends_on:
+      - api
+
 volumes:
   arachis_postgres:
+  admin_node_modules:

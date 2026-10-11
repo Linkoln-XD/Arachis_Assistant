@@ -6,3 +6,5 @@
 **/__pycache__
 .DS_Store
 docs
+admin/node_modules
+admin/dist
