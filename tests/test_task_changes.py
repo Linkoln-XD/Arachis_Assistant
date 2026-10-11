@@ -144,7 +144,7 @@ def test_create_without_a_key_makes_a_new_task_each_time() -> None:
 
 def test_expired_idempotency_key_can_be_used_again() -> None:
     token = _token()
-    key = "again"
+    key = f"again-{uuid.uuid4().hex}"
     first = _post(token, {"description": "первая"}, key)
     _expire(key)
 

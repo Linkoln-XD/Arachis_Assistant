@@ -94,6 +94,61 @@ def create_meeting(
     return CreatedMeeting(meeting=meeting, overlaps=overlaps)
 
 
+def update_meeting(
+    session: Session,
+    user: User,
+    meeting_id: UUID,
+    *,
+    title: str | None,
+    starts_at: datetime | None,
+    ends_at: datetime | None,
+    update_title: bool,
+    update_start: bool,
+    update_end: bool,
+    allow_overlap: bool,
+) -> CreatedMeeting:
+    meeting = get_meeting(session, user, meeting_id)
+    current_start = _as_utc(meeting.starts_at)
+    current_end = _as_utc(meeting.ends_at)
+    new_start = _as_utc(starts_at) if update_start and starts_at is not None else current_start
+    if update_end and ends_at is not None:
+        new_end = _as_utc(ends_at)
+    elif update_start:
+        new_end = new_start + (current_end - current_start)
+    else:
+        new_end = current_end
+
+    interval_changed = new_start != current_start or new_end != current_end
+    overlaps: list[Meeting] = []
+    if interval_changed:
+        errors = _interval_errors(new_start, new_end)
+        if errors:
+            raise InvalidMeetingInterval(errors)
+        _reject_past(new_start, new_end, current_start, current_end)
+        overlaps = _overlaps(session, user.id, new_start, new_end, exclude_id=meeting.id)
+        if overlaps and not allow_overlap:
+            raise MeetingOverlap(overlaps)
+
+    changed = False
+    if update_title and title is not None:
+        meeting.title = title
+        changed = True
+    if interval_changed:
+        meeting.starts_at = new_start
+        meeting.ends_at = new_end
+        changed = True
+    if changed:
+        meeting.updated_at = datetime.now(UTC)
+        session.commit()
+    return CreatedMeeting(meeting=meeting, overlaps=overlaps)
+
+
+def delete_meeting(session: Session, user: User, meeting_id: UUID) -> None:
+    meeting = get_meeting(session, user, meeting_id)
+    session.delete(meeting)
+    session.flush()
+
+
 def get_meeting(session: Session, user: User, meeting_id: UUID) -> Meeting:
     meeting = session.get(Meeting, meeting_id)
     if meeting is None or meeting.user_id != user.id:
@@ -126,16 +181,34 @@ def _interval_errors(starts_at: datetime, ends_at: datetime) -> list[tuple[str, 
     return []
 
 
-def _overlaps(session: Session, user_id: UUID, starts_at: datetime, ends_at: datetime) -> list[Meeting]:
-    rows = session.scalars(
-        select(Meeting)
-        .where(
-            Meeting.user_id == user_id,
-            Meeting.starts_at < ends_at,
-            Meeting.ends_at > starts_at,
-        )
-        .order_by(Meeting.starts_at.asc(), Meeting.id.asc())
-    ).all()
+def _reject_past(
+    new_start: datetime,
+    new_end: datetime,
+    current_start: datetime,
+    current_end: datetime,
+) -> None:
+    deadline = datetime.now(UTC) - _SKEW
+    if new_start != current_start and new_start < deadline:
+        raise MeetingInThePast("starts_at")
+    if new_end != current_end and new_end < deadline:
+        raise MeetingInThePast("ends_at")
+
+
+def _overlaps(
+    session: Session,
+    user_id: UUID,
+    starts_at: datetime,
+    ends_at: datetime,
+    exclude_id: UUID | None = None,
+) -> list[Meeting]:
+    filtered = select(Meeting).where(
+        Meeting.user_id == user_id,
+        Meeting.starts_at < ends_at,
+        Meeting.ends_at > starts_at,
+    )
+    if exclude_id is not None:
+        filtered = filtered.where(Meeting.id != exclude_id)
+    rows = session.scalars(filtered.order_by(Meeting.starts_at.asc(), Meeting.id.asc())).all()
     return list(rows)
 
 
