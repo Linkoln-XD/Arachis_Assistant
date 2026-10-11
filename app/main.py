@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from app.api import API_PREFIX
 from app.api.auth import router as auth_router
+from app.api.calendar import router as calendar_router
 from app.api.errors import register_exception_handlers
 from app.api.health import router as health_router
 from app.api.meetings import router as meetings_router
@@ -31,6 +32,7 @@ def create_app() -> FastAPI:
     app.include_router(tasks_router, prefix=API_PREFIX)
     app.include_router(meetings_router, prefix=API_PREFIX)
     app.include_router(reminders_router, prefix=API_PREFIX)
+    app.include_router(calendar_router, prefix=API_PREFIX)
     return app
 
 
