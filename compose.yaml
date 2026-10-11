@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: arachis
+      POSTGRES_PASSWORD: arachis
+      POSTGRES_DB: arachis
+    ports:
+      - "5432:5432"
+    volumes:
+      # PostgreSQL 18 хранит кластер в подкаталоге этого пути.
+      - arachis_postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arachis -d arachis"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://arachis:arachis@postgres:5432/arachis
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  arachis_postgres:

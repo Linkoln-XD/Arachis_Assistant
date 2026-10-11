@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_name: str = "Arachis Assistant"
+    database_url: str = "postgresql+psycopg://arachis:arachis@localhost:5432/arachis"
 
 
 @lru_cache
